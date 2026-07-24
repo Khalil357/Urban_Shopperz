@@ -19,14 +19,14 @@ public class CustomerService {
             throw new BusinessException("DUPLICATE_PHONE", "Phone number already registered");
         }
 
-        var customer = Customer.builder()
+        var entity = Customer.builder()
             .phone(request.phone())
             .name(request.name())
             .language(request.language() != null ? request.language() : "sw")
             .build();
 
-        customer = customerRepository.save(customer);
-        return CustomerDTO.fromEntity(customer);
+        var saved = customerRepository.save(entity);
+        return CustomerDTO.fromEntity(saved);
     }
 
     @Transactional(readOnly = true)
@@ -51,7 +51,7 @@ public class CustomerService {
         if (request.name() != null) customer.setName(request.name());
         if (request.language() != null) customer.setLanguage(request.language());
 
-        customer = customerRepository.save(customer);
-        return CustomerDTO.fromEntity(customer);
+        var saved = customerRepository.save(customer);
+        return CustomerDTO.fromEntity(saved);
     }
 }
