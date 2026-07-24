@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "customers", schema = "user_service")
+@Table(name = "customers")
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class Customer {
 
