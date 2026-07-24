@@ -1,5 +1,8 @@
 # Urban Shopper Platform — Software Vision & Product Definition (SVPD)
 
+> **⚠️ DEPRECATED — Superseded by `01-business-vision-and-strategy.md`**  
+> This document was an earlier draft and has been superseded by Phase 1. Refer to `01-business-vision-and-strategy.md` for the current Business Vision & Product Strategy. Retained for historical reference only.
+
 > **Document Type:** Business Analysis  
 > **Status:** Complete  
 > **Date:** 2026-07-24  

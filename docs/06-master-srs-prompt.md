@@ -378,7 +378,7 @@ Define requirements FR-COMM-001 through FR-COMM-012 covering:
 Define requirements FR-FRAUD-001 through FR-FRAUD-015 covering:
 
 - Duplicate account detection (phone number, device fingerprint, national ID)
-- Transaction velocity monitoring (> 5 orders to different locations in 60 min → flag)
+- Transaction velocity monitoring — configurable thresholds with anomaly detection (not hard-coded "5 orders in 60 minutes")
 - Order acceptance location validation (shopper GPS must be within zone)
 - Receipt price verification against market average database
 - High-value order verification (> 200,000 TZS requires additional OTP)

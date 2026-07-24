@@ -1,5 +1,8 @@
 # Urban Shopper Platform — Business Workflows
 
+> **⚠️ SUPERSEDED — Replaced by `05-business-process-models.md`**  
+> This document contains an earlier workflow draft. All business processes have been refined and formalised as BPMN process models in Phase 5 (`05-business-process-models.md`). Refer to that document for the current, complete process specifications.
+
 > **Document Type:** Business Analysis  
 > **Status:** Complete  
 > **Date:** 2026-07-24  
