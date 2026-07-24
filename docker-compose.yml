@@ -1,0 +1,105 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: urbanshopper-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: urbanshopper
+      POSTGRES_USER: urbanshopper
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-urbanshopper_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urbanshopper"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: urbanshopper-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: urbanshopper-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: urbanshopper
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-urbanshopper_dev}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: urbanshopper-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: urbanshopper
+      DB_USER: urbanshopper
+      DB_PASSWORD: ${DB_PASSWORD:-urbanshopper_dev}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: urbanshopper
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-urbanshopper_dev}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-do-not-use-in-production}
+      SMS_API_KEY: ${SMS_API_KEY}
+      SMS_API_SECRET: ${SMS_API_SECRET}
+      MPESA_API_KEY: ${MPESA_API_KEY}
+      MPESA_API_SECRET: ${MPESA_API_SECRET}
+      MIXX_API_KEY: ${MIXX_API_KEY}
+      MIXX_API_SECRET: ${MIXX_API_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: urbanshopper-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

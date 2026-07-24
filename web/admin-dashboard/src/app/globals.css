@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #2ECC71;
+  --primary-dark: #27AE60;
+  --danger: #E74C3C;
+  --warning: #F39C12;
+  --info: #3498DB;
+  --dark: #2C3E50;
+  --gray: #95A5A6;
+  --light: #ECF0F1;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #F5F7FA;
+  color: var(--dark);
+}

@@ -2,18 +2,44 @@
 .DS_Store
 Thumbs.db
 
-# Editor files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# Environment files
+# Environment
 .env
 .env.local
 .env.production
+.env.template
 
-# Temporary files
+# Backend
+backend/target/
+backend/*.jar
+backend/*.log
+backend/.flattened-pom.xml
+
+# Flutter
+mobile/**/build/
+mobile/**/.dart_tool/
+mobile/**/.packages
+mobile/**/pubspec.lock
+mobile/**/.flutter-plugins
+mobile/**/.flutter-plugins-dependencies
+
+# Next.js
+web/admin-dashboard/.next/
+web/admin-dashboard/out/
+web/admin-dashboard/node_modules/
+
+# Infrastructure
+infrastructure/terraform/.terraform/
+infrastructure/terraform/terraform.tfstate*
+
+# Docker
+docker-compose.override.yml
+
+# Logs
 *.log
-tmp/
-temp/
+logs/
