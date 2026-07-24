@@ -29,16 +29,3 @@ public record CustomerDTO(
             .build();
     }
 }
-
-@Builder
-record RegisterCustomerRequest(
-    @NotBlank @Pattern(regexp = "^255[0-9]{9}$") String phone,
-    @NotBlank @Size(min = 2, max = 100) String name,
-    String language
-) {}
-
-@Builder
-record UpdateCustomerRequest(
-    String name,
-    String language
-) {}

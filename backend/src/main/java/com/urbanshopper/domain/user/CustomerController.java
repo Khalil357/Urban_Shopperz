@@ -1,5 +1,6 @@
 package com.urbanshopper.domain.user;
 
+import com.urbanshopper.shared.exception.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -36,17 +37,3 @@ public class CustomerController {
         return ResponseEntity.ok(ApiResponse.success(customer));
     }
 }
-
-record ApiResponse<T>(boolean success, T data, ErrorDetail error) {
-    static <T> ApiResponse<T> success(T data) {
-        return new ApiResponse<>(true, data, null);
-    }
-    static <T> ApiResponse<T> error(String code, String message) {
-        return new ApiResponse<>(false, null, new ErrorDetail(code, message, null));
-    }
-    static <T> ApiResponse<T> error(String code, String message, Object details) {
-        return new ApiResponse<>(false, null, new ErrorDetail(code, message, details));
-    }
-}
-
-record ErrorDetail(String code, String message, Object details) {}

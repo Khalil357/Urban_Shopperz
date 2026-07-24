@@ -3,6 +3,7 @@ package com.urbanshopper.domain.auth;
 import com.urbanshopper.domain.user.CustomerDTO;
 import com.urbanshopper.domain.user.CustomerService;
 import com.urbanshopper.domain.user.RegisterCustomerRequest;
+import com.urbanshopper.shared.exception.ApiResponse;
 import com.urbanshopper.shared.exception.BusinessException;
 import com.urbanshopper.shared.security.JwtService;
 import jakarta.validation.Valid;
