@@ -9,4 +9,5 @@ public interface ShopperAvailabilityRepository extends JpaRepository<ShopperAvai
     Optional<ShopperAvailability> findByShopperId(UUID shopperId);
     List<ShopperAvailability> findByStatusAndCurrentZoneId(String status, UUID currentZoneId);
     List<ShopperAvailability> findByStatus(String status);
+    long countByStatus(String status);
 }

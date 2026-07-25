@@ -219,6 +219,14 @@ public class DisputeService {
             .toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<DisputeDTO> getDisputesByStatus(DisputeStatus status) {
+        return disputeRepository.findByStatusOrderByCreatedAtAsc(status)
+            .stream()
+            .map(DisputeDTO::fromEntity)
+            .toList();
+    }
+
     // ═══════════════════════════════════════════════
     //  Private
     // ═══════════════════════════════════════════════
