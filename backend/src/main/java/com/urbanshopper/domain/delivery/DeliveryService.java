@@ -4,6 +4,7 @@ import com.urbanshopper.domain.order.Order;
 import com.urbanshopper.domain.order.OrderRepository;
 import com.urbanshopper.domain.order.OrderStatus;
 import com.urbanshopper.domain.order.OrderStateMachine;
+import com.urbanshopper.domain.payment.PaymentService;
 import com.urbanshopper.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ public class DeliveryService {
     private final DeliveryPhotoRepository deliveryPhotoRepository;
     private final OrderRepository orderRepository;
     private final OrderStateMachine orderStateMachine;
+    private final PaymentService paymentService;
 
     // ──────────────────────────────────────────────
     //  Start Delivery (E-003)
@@ -155,6 +157,14 @@ public class DeliveryService {
         // ── Transition order state ──
         orderStateMachine.transition(order, OrderStatus.DELIVERED,
             "ShopperArrivedAndDelivered", "shopper", shopperId, null);
+
+        // Trigger payment capture (F-004)
+        try {
+            paymentService.capture(orderId);
+            log.info("Payment captured for order {}", order.getOrderNumber());
+        } catch (Exception e) {
+            log.warn("Payment capture failed for order {}: {}", order.getOrderNumber(), e.getMessage());
+        }
 
         log.info("Delivery confirmed for order {} (recipient: {}, photos: {})",
             order.getOrderNumber(), req.recipientName(),
