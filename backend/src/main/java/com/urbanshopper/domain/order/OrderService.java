@@ -1,5 +1,6 @@
 package com.urbanshopper.domain.order;
 
+import com.urbanshopper.domain.assignment.AssignmentEngine;
 import com.urbanshopper.domain.order.events.OrderCreatedEvent;
 import com.urbanshopper.shared.events.EventPublisher;
 import com.urbanshopper.shared.exception.BusinessException;
@@ -39,6 +40,7 @@ public class OrderService {
     private final ReceiptPhotoRepository receiptPhotoRepository;
     private final OrderPricingService pricingService;
     private final OrderStateMachine stateMachine;
+    private final AssignmentEngine assignmentEngine;
     private final EventPublisher eventPublisher;
 
     // ═══════════════════════════════════════════════
@@ -68,6 +70,16 @@ public class OrderService {
             log.warn("Payment pre-auth failed for order {}: {}", saved.getOrderNumber(), e.getMessage());
             stateMachine.transition(saved, OrderStatus.CANCELLED,
                 "PaymentFailed", "system", null, e.getMessage());
+        }
+
+        // Trigger assignment engine
+        if (saved.getStatus() == OrderStatus.QUEUED_FOR_ASSIGNMENT) {
+            try {
+                assignmentEngine.processOrder(saved.getId());
+            } catch (Exception e) {
+                log.warn("Initial assignment trigger failed for {} (poller will retry): {}",
+                    saved.getOrderNumber(), e.getMessage());
+            }
         }
 
         eventPublisher.publish(new OrderCreatedEvent(
