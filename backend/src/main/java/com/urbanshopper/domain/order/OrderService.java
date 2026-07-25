@@ -2,6 +2,7 @@ package com.urbanshopper.domain.order;
 
 import com.urbanshopper.domain.assignment.AssignmentEngine;
 import com.urbanshopper.domain.order.events.OrderCreatedEvent;
+import com.urbanshopper.domain.payment.PaymentService;
 import com.urbanshopper.shared.events.EventPublisher;
 import com.urbanshopper.shared.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class OrderService {
     private final OrderPricingService pricingService;
     private final OrderStateMachine stateMachine;
     private final AssignmentEngine assignmentEngine;
+    private final PaymentService paymentService;
     private final EventPublisher eventPublisher;
 
     // ═══════════════════════════════════════════════
@@ -457,7 +459,11 @@ public class OrderService {
     }
 
     private void processPaymentPreAuth(Order order, OrderPricing pricing) {
-        log.info("Payment pre-auth placed for {}: {} TZS (stub — awaiting M-Pesa integration)",
-            order.getOrderNumber(), pricing.total());
+        try {
+            paymentService.preAuth(order.getId(), order.getPaymentMethod());
+        } catch (Exception e) {
+            log.warn("Payment pre-auth failed for {}: {}", order.getOrderNumber(), e.getMessage());
+            throw e;
+        }
     }
 }
