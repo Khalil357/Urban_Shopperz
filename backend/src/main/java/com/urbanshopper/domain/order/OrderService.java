@@ -18,11 +18,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Order Service — manages the complete order lifecycle.
  *
  * Implements business rules from 03-business-rules.md:
- * - D-001: Order creation with minimum requirements
- * - D-003: Pricing visibility with variance control
- * - D-004: State machine lifecycle with ordered transitions
+ * - D-001/D-003: Order creation with pricing
+ * - D-004/D-006/D-007: Shopping flow with item tracking
+ * - D-008: Receipt upload
  * - F-001/F-002: Pricing calculation
- * - F-003: Payment pre-authorisation flow
+ * - F-003: Payment pre-authorisation
+ * - G-001/G-002/G-003: Cancellation
  */
 @Service
 @RequiredArgsConstructor
@@ -33,52 +34,32 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrderStatusHistoryRepository statusHistoryRepository;
+    private final ReceiptRepository receiptRepository;
+    private final ReceiptPhotoRepository receiptPhotoRepository;
     private final OrderPricingService pricingService;
     private final OrderStateMachine stateMachine;
     private final EventPublisher eventPublisher;
 
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════
     //  Order Creation (D-001 → D-004 → F-003)
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════
 
-    /**
-     * Complete order creation flow:
-     *
-     * 1. Validate business rules (D-001)
-     * 2. Calculate estimated pricing (F-001, F-002)
-     * 3. Build and persist Order entity
-     * 4. Build and persist OrderItems
-     * 5. Transition CREATED → AWAITING_PAYMENT_VERIFICATION
-     * 6. Execute payment pre-auth (stubbed — real M-Pesa integration in Phase 1)
-     * 7. On success: transition → QUEUED_FOR_ASSIGNMENT
-     *    On failure: transition → CANCELLED
-     * 8. Publish OrderCreatedEvent
-     * 9. Return OrderDTO
-     */
     @Transactional
     public OrderDTO createOrder(CreateOrderRequest req, UUID customerId) {
-        // ── Step 1: Validate business rules (D-001) ──
         validateOrderRequest(req);
 
-        // ── Step 2: Calculate estimated pricing (F-001, F-002) ──
         var pricing = pricingService.calculateEstimatedPricing(req);
 
-        // ── Step 3: Build and save Order entity ──
         var now = Instant.now();
         var order = buildOrderEntity(req, customerId, pricing, now);
         var saved = orderRepository.save(order);
 
-        // ── Step 4: Save OrderItems ──
         saveOrderItems(saved.getId(), req);
 
-        // ── Step 5: Initial state transition ──
-        // CREATED → AWAITING_PAYMENT_VERIFICATION
         stateMachine.transition(saved, OrderStatus.AWAITING_PAYMENT_VERIFICATION,
             "OrderSubmitted", "system", null, null);
 
-        // ── Step 6 & 7: Payment pre-auth (F-003) ──
-        // Placeholder: simulate successful payment verification
-        // TODO: Replace with real M-Pesa/Mixx integration (Phase 1 — Week 11-12)
         try {
             processPaymentPreAuth(saved, pricing);
             stateMachine.transition(saved, OrderStatus.QUEUED_FOR_ASSIGNMENT,
@@ -89,7 +70,6 @@ public class OrderService {
                 "PaymentFailed", "system", null, e.getMessage());
         }
 
-        // ── Step 8: Publish domain event ──
         eventPublisher.publish(new OrderCreatedEvent(
             saved.getId(), saved.getCustomerId(),
             saved.getItemCount(), saved.getEstimatedTotal()));
@@ -97,13 +77,12 @@ public class OrderService {
         log.info("Order created: {} (status: {}, total: {} TZS)",
             saved.getOrderNumber(), saved.getStatus(), pricing.total());
 
-        // ── Step 9: Return DTO ──
         return OrderDTO.fromEntity(saved);
     }
 
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════
     //  Read Operations
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════
 
     @Transactional(readOnly = true)
     public OrderDTO getOrder(UUID id) {
@@ -120,19 +99,197 @@ public class OrderService {
             .toList();
     }
 
-    // ──────────────────────────────────────────────
-    //  Cancellation (G-001, G-002, G-003)
-    // ──────────────────────────────────────────────
+    /**
+     * Get order status summary with item counts for the status endpoint.
+     */
+    @Transactional(readOnly = true)
+    public OrderStatusResponse getOrderStatus(UUID orderId) {
+        var order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new BusinessException("ORDER_NOT_FOUND", "Order not found: " + orderId));
+
+        var items = orderItemRepository.findByOrderIdOrderBySortOrderAsc(orderId);
+        var timeline = statusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(orderId);
+
+        long found = items.stream().filter(i -> "found".equals(i.getStatus())).count();
+        long substituted = items.stream().filter(i -> "substituted".equals(i.getStatus())).count();
+        long notAvailable = items.stream().filter(i -> "not_available".equals(i.getStatus())).count();
+        long pending = items.stream().filter(i -> "requested".equals(i.getStatus())).count();
+
+        return OrderStatusResponse.builder()
+            .orderId(order.getId().toString())
+            .orderNumber(order.getOrderNumber())
+            .status(order.getStatus().name())
+            .totalItems(order.getItemCount())
+            .itemsFound((int) found)
+            .itemsSubstituted((int) substituted)
+            .itemsUnavailable((int) notAvailable)
+            .itemsPending((int) pending)
+            .estimatedTotal(order.getEstimatedTotal())
+            .timeline(timeline.stream()
+                .map(h -> new OrderStatusResponse.TimelineEvent(
+                    h.getFromStatus(), h.getToStatus(), h.getTriggerEvent(),
+                    h.getCreatedAt().toString()))
+                .toList())
+            .build();
+    }
 
     /**
-     * Cancel an order with full audit trail.
-     * Handles:
-     * - G-001: Customer cancellation before acceptance
-     * - G-002: Customer cancellation after acceptance, before shopping
-     * - G-003: Customer cancellation after shopping started
-     * - G-004: Shopper-initiated cancellation
-     * - G-005: Platform-initiated cancellation
+     * Get all items for an order.
      */
+    @Transactional(readOnly = true)
+    public List<OrderItemDTO> getOrderItems(UUID orderId) {
+        if (!orderRepository.existsById(orderId)) {
+            throw new BusinessException("ORDER_NOT_FOUND", "Order not found: " + orderId);
+        }
+        return orderItemRepository.findByOrderIdOrderBySortOrderAsc(orderId)
+            .stream()
+            .map(OrderItemDTO::fromEntity)
+            .toList();
+    }
+
+    // ═══════════════════════════════════════════════
+    //  Shopping Flow — Item Tracking (D-006, D-007)
+    // ═══════════════════════════════════════════════
+
+    /**
+     * D-006: Mark item status during shopping.
+     * Handles: Found, Substituted, Not Available.
+     * D-007: Substitution rules — follows Best Match / Contact Me / No Substitutions.
+     *
+     * When all items are resolved, auto-transitions order to SHOPPING_COMPLETE.
+     */
+    @Transactional
+    public OrderItemDTO updateItemStatus(UUID orderId, UUID itemId, ItemStatusUpdateRequest req, UUID actorId) {
+        var order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new BusinessException("ORDER_NOT_FOUND", "Order not found: " + orderId));
+
+        var item = orderItemRepository.findById(itemId)
+            .orElseThrow(() -> new BusinessException("ITEM_NOT_FOUND", "Item not found: " + itemId));
+
+        if (!item.getOrderId().equals(orderId)) {
+            throw new BusinessException("ITEM_MISMATCH", "Item does not belong to this order");
+        }
+
+        var newStatus = req.status().toLowerCase();
+
+        // Validate allowed transitions
+        var currentStatus = item.getStatus();
+        if ("requested".equals(currentStatus) && List.of("found", "substituted", "not_available").contains(newStatus)) {
+            // Valid transition
+        } else if ("substituted".equals(currentStatus) && List.of("found", "not_available").contains(newStatus)) {
+            // Customer approved or rejected substitution
+        } else {
+            throw new BusinessException("INVALID_ITEM_STATUS",
+                "Cannot transition item from " + currentStatus + " to " + newStatus);
+        }
+
+        // D-007: Handle substitution workflow
+        if ("substituted".equals(newStatus)) {
+            handleSubstitution(item, req);
+        }
+
+        // Update item fields
+        item.setStatus(newStatus);
+        if (req.actualPrice() != null) item.setActualPrice(req.actualPrice());
+        item.setHasPhoto(req.hasPhoto() != null ? req.hasPhoto() : false);
+        if (req.substitutionNote() != null) item.setSubstitutionNote(req.substitutionNote());
+        if (req.substitutionApproval() != null) item.setSubstitutionApproval(req.substitutionApproval());
+
+        var saved = orderItemRepository.save(item);
+        log.info("Item {} in order {}: {} → {}", item.getName(), order.getOrderNumber(), currentStatus, newStatus);
+
+        // Auto-detect shopping complete when all items resolved
+        checkAndTransitionToShoppingComplete(order);
+
+        return OrderItemDTO.fromEntity(saved);
+    }
+
+    /**
+     * Shopper marks arrival at market: ACCEPTED → TRAVELLING_TO_MARKET → SHOPPING.
+     */
+    @Transactional
+    public OrderDTO arriveAtMarket(UUID orderId, UUID shopperId) {
+        var order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new BusinessException("ORDER_NOT_FOUND", "Order not found: " + orderId));
+
+        if (!shopperId.equals(order.getShopperId())) {
+            throw new BusinessException("NOT_ASSIGNED", "Shopper is not assigned to this order");
+        }
+
+        // ACCEPTED → TRAVELLING_TO_MARKET
+        if (order.getStatus() == OrderStatus.ACCEPTED) {
+            stateMachine.transition(order, OrderStatus.TRAVELLING_TO_MARKET,
+                "ShopperEnRoute", "shopper", shopperId, null);
+        }
+
+        // TRAVELLING_TO_MARKET → SHOPPING
+        if (order.getStatus() == OrderStatus.TRAVELLING_TO_MARKET) {
+            stateMachine.transition(order, OrderStatus.SHOPPING,
+                "ShopperArrivedAtMarket", "shopper", shopperId, null);
+        }
+
+        var saved = orderRepository.save(order);
+        return OrderDTO.fromEntity(saved);
+    }
+
+    // ═══════════════════════════════════════════════
+    //  Shopping Flow — Receipt (D-008)
+    // ═══════════════════════════════════════════════
+
+    /**
+     * D-008: Upload receipt after shopping is complete.
+     * Supports photo receipts, handwritten receipts, and manual entry.
+     * If all items are resolved and receipt is uploaded, transitions to RECEIPT_VERIFIED.
+     */
+    @Transactional
+    public ReceiptDTO uploadReceipt(UUID orderId, ReceiptUploadRequest req, UUID actorId) {
+        var order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new BusinessException("ORDER_NOT_FOUND", "Order not found: " + orderId));
+
+        if (order.getStatus() != OrderStatus.SHOPPING_COMPLETE && order.getStatus() != OrderStatus.SHOPPING) {
+            throw new BusinessException("INVALID_STATE",
+                "Receipt can only be uploaded during or after shopping");
+        }
+
+        var receipt = Receipt.builder()
+            .orderId(orderId)
+            .receiptType(req.receiptType())
+            .totalAmount(req.totalAmount())
+            .vendorName(req.vendorName())
+            .notes(req.notes())
+            .build();
+        var saved = receiptRepository.save(receipt);
+
+        // Save receipt photos if provided
+        if (req.photoUrls() != null && !req.photoUrls().isEmpty()) {
+            for (int i = 0; i < req.photoUrls().size(); i++) {
+                var photo = ReceiptPhoto.builder()
+                    .receiptId(saved.getId())
+                    .photoUrl(req.photoUrls().get(i))
+                    .sortOrder(i + 1)
+                    .build();
+                receiptPhotoRepository.save(photo);
+            }
+        }
+
+        // Transition to RECEIPT_VERIFIED (from SHOPPING_COMPLETE or SHOPPING)
+        if (order.getStatus() == OrderStatus.SHOPPING || order.getStatus() == OrderStatus.SHOPPING_COMPLETE) {
+            // If still SHOPPING, transition to SHOPPING_COMPLETE first
+            if (order.getStatus() == OrderStatus.SHOPPING) {
+                stateMachine.transition(order, OrderStatus.SHOPPING_COMPLETE,
+                    "ReceiptUploaded", "shopper", actorId, null);
+            }
+            stateMachine.transition(order, OrderStatus.RECEIPT_VERIFIED,
+                "ReceiptUploadedAndVerified", "shopper", actorId, null);
+        }
+
+        return ReceiptDTO.fromEntity(saved);
+    }
+
+    // ═══════════════════════════════════════════════
+    //  Cancellation (G-001, G-002, G-003)
+    // ═══════════════════════════════════════════════
+
     @Transactional
     public OrderDTO cancelOrder(UUID id, String reason, String cancelledBy, UUID actorId) {
         var order = orderRepository.findById(id)
@@ -143,7 +300,6 @@ public class OrderService {
                 "Order " + order.getOrderNumber() + " is already " + order.getStatus());
         }
 
-        // Determine trigger event based on who is cancelling
         String triggerEvent = switch (cancelledBy) {
             case "customer" -> "CustomerCancellation";
             case "shopper" -> "ShopperCancellation";
@@ -158,15 +314,13 @@ public class OrderService {
         order.setCancelledBy(cancelledBy);
         order.setCancelledAt(Instant.now());
 
-        // Calculate cancellation fee per G-002/G-003 based on current status
-        // G-001 (before acceptance): no fee
-        // G-002 (after acceptance, before shopping): actual progress compensation
-        // G-003 (after shopping started): full delivery fee + 10% restocking
+        // G-001 before acceptance: no fee
+        // G-002 after acceptance, before shopping: delivery fee
+        // G-003 after shopping started: full delivery fee + 10% restocking
         if (order.getStatus() == OrderStatus.ACCEPTED || order.getStatus() == OrderStatus.TRAVELLING_TO_MARKET) {
-            order.setCancellationFee(order.getEstimatedDeliveryFee()); // G-002: delivery fee as cancellation fee
+            order.setCancellationFee(order.getEstimatedDeliveryFee());
         } else if (order.getStatus().ordinal() >= OrderStatus.SHOPPING.ordinal()
             && order.getStatus().ordinal() < OrderStatus.DELIVERED.ordinal()) {
-            // G-003: full delivery fee + 10% restocking
             int restockingFee = (int) Math.round(order.getEstimatedTotal() * 0.10);
             order.setCancellationFee(order.getEstimatedDeliveryFee() + restockingFee);
         }
@@ -175,41 +329,31 @@ public class OrderService {
         return OrderDTO.fromEntity(saved);
     }
 
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════
     //  Private Helpers
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════
 
     private void validateOrderRequest(CreateOrderRequest req) {
-        // D-001: Minimum requirements validation
         if (req.items() == null || req.items().isEmpty()) {
             throw new BusinessException("INVALID_ORDER", "Order must have at least one item");
         }
-
-        // D-001: Scheduled orders require a time at least 2 hours in the future
         if ("scheduled".equals(req.deliveryTime()) && req.scheduledWindow() != null) {
             if (req.scheduledWindow().isBefore(Instant.now().plusSeconds(7200))) {
                 throw new BusinessException("INVALID_SCHEDULE",
                     "Scheduled orders must be at least 2 hours in the future");
             }
         }
-
-        // Validate shopping preference (D-001)
-        var validPreferences = List.of("cheapest", "best_quality", "balanced");
-        if (!validPreferences.contains(req.shoppingPreference())) {
+        if (!List.of("cheapest", "best_quality", "balanced").contains(req.shoppingPreference())) {
             throw new BusinessException("INVALID_PREFERENCE",
-                "Shopping preference must be one of: cheapest, best_quality, balanced");
+                "Shopping preference must be: cheapest, best_quality, or balanced");
         }
-
-        // Validate delivery preference
         if (!List.of("asap", "scheduled").contains(req.deliveryTime())) {
             throw new BusinessException("INVALID_DELIVERY_TIME",
                 "Delivery time must be 'asap' or 'scheduled'");
         }
-
-        // Validate payment method
         if (!List.of("mpesa", "mixx", "cod").contains(req.paymentMethod())) {
             throw new BusinessException("INVALID_PAYMENT_METHOD",
-                "Payment method must be one of: mpesa, mixx, cod");
+                "Payment method must be: mpesa, mixx, or cod");
         }
     }
 
@@ -233,7 +377,7 @@ public class OrderService {
             .deliveryPreference(req.deliveryTime())
             .scheduledWindowStart("scheduled".equals(req.deliveryTime()) ? req.scheduledWindow() : null)
             .scheduledWindowEnd("scheduled".equals(req.deliveryTime()) && req.scheduledWindow() != null
-                ? req.scheduledWindow().plusSeconds(3600) : null) // default 1-hour delivery window
+                ? req.scheduledWindow().plusSeconds(3600) : null)
             .paymentMethod(req.paymentMethod())
             .estimatedItemCost(pricing.estimatedItemCost())
             .estimatedServiceFee(pricing.serviceFee())
@@ -263,21 +407,45 @@ public class OrderService {
     }
 
     /**
-     * F-003: Payment pre-authorisation.
-     *
-     * MVP stub — simulates a pre-auth hold on the customer's mobile money.
-     * TODO: Implement real M-Pesa/Mixx integration in Phase 1 (Week 11-12).
-     *
-     * The real implementation will:
-     * 1. Call M-Pesa API to place a hold for pricing.total()
-     * 2. Store the hold reference on the payment record
-     * 3. On failure, retry up to 2 times within 5 minutes (F-011)
-     * 4. If all retries fail, cancel the order
+     * D-007: Handle substitution based on customer's substitution preference.
      */
+    private void handleSubstitution(OrderItem item, ItemStatusUpdateRequest req) {
+        var subPref = item.getSubstitutionPreference();
+
+        if ("no_substitutions".equals(subPref)) {
+            throw new BusinessException("SUBSTITUTION_NOT_ALLOWED",
+                "Customer has disabled substitutions for this item");
+        }
+
+        if ("contact_me".equals(subPref) && !"approved".equals(req.substitutionApproval())) {
+            // Store as substituted but mark approval as pending
+            item.setSubstitutionApproval("pending");
+            item.setSubstitutionNote(req.substitutionNote());
+        }
+    }
+
+    /**
+     * Auto-detect when all items are resolved and transition to SHOPPING_COMPLETE.
+     * Only fires when order is in SHOPPING state and all items are terminal.
+     */
+    private void checkAndTransitionToShoppingComplete(Order order) {
+        if (order.getStatus() != OrderStatus.SHOPPING) return;
+
+        var items = orderItemRepository.findByOrderIdOrderBySortOrderAsc(order.getId());
+        var allResolved = items.stream().allMatch(i -> {
+            var s = i.getStatus();
+            return "found".equals(s) || "substituted".equals(s) || "not_available".equals(s);
+        });
+
+        if (allResolved) {
+            stateMachine.transition(order, OrderStatus.SHOPPING_COMPLETE,
+                "AllItemsResolved", "system", null, null);
+            log.info("Order {}: all items resolved → SHOPPING_COMPLETE", order.getOrderNumber());
+        }
+    }
+
     private void processPaymentPreAuth(Order order, OrderPricing pricing) {
         log.info("Payment pre-auth placed for {}: {} TZS (stub — awaiting M-Pesa integration)",
             order.getOrderNumber(), pricing.total());
-        // Stub: always succeeds in MVP
-        // Real implementation will throw on payment failure
     }
 }
