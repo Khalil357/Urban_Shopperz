@@ -14,7 +14,6 @@ CREATE TABLE customers (
 );
 
 CREATE INDEX idx_customers_phone ON customers(phone);
-CREATE INDEX idx_customers_status ON customers(status);
 
 CREATE TABLE zones (
     id                      UUID PRIMARY KEY,
@@ -28,8 +27,6 @@ CREATE TABLE zones (
     operating_hours_end     TIME NOT NULL DEFAULT '22:00',
     base_delivery_fee       INTEGER NOT NULL DEFAULT 1500,
     per_km_rate             INTEGER NOT NULL DEFAULT 500,
-    supply_demand_threshold DECIMAL(5,2) NOT NULL DEFAULT 5.0,
-    current_shopper_count   INTEGER NOT NULL DEFAULT 0,
     created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

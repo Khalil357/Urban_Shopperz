@@ -9,5 +9,4 @@ import lombok.Builder;
 public record RegisterCustomerRequest(
     @NotBlank @Pattern(regexp = "^255[0-9]{9}$") String phone,
     @NotBlank @Size(min = 2, max = 100) String name,
-    String language
-) {}
+    String language) {}
