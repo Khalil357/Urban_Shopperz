@@ -20,7 +20,7 @@ class AuthService extends ChangeNotifier {
 
   bool get isAuthenticated => _token != null;
 
-  static const String _baseUrl = 'http://10.0.2.2:8080/api/v1';
+  static const String _baseUrl = 'http://localhost:8080/api/v1';
 
   Future<bool> requestOtp(String phone) async {
     try {

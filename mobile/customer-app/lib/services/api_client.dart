@@ -5,10 +5,8 @@ import 'auth_service.dart';
 
 /// Base API client with JWT auth headers and error handling.
 class ApiClient {
-  // Android emulator → host machine: 10.0.2.2
-  // iOS simulator → host machine: localhost
-  // Physical device → use your machine's LAN IP
-  static const String baseUrl = 'http://10.0.2.2:8080/api/v1';
+  // Web → localhost, Android emulator → 10.0.2.2, iOS simulator → localhost
+  static const String baseUrl = 'http://localhost:8080/api/v1';
 
   final AuthService _authService;
 
