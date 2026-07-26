@@ -46,6 +46,7 @@ public class AssignmentEngine {
     private final OrderOfferRepository offerRepository;
     private final ShopperAvailabilityRepository availabilityRepository;
     private final ZoneConfigRepository zoneConfigRepository;
+    private final com.urbanshopper.domain.order.MarketRepository marketRepository;
     private final AssignmentScoreCalculator scoreCalculator;
     private final DistanceCalculator distanceCalculator;
 
@@ -346,16 +347,14 @@ public class AssignmentEngine {
     }
 
     /**
-     * Get market coordinates. For MVP, uses zone center if no market_id set.
+     * Get market coordinates for distance calculation.
+     * Uses the order's assigned market if available; falls back to zone center.
      */
     private MarketCoords getMarketCoordinates(Order order) {
         if (order.getMarketId() != null) {
-            // Use market coordinates — in MVP, fall back to zone center if not available
-            var zoneConfig = zoneConfigRepository.findById(order.getZoneId()).orElse(null);
-            if (zoneConfig != null && zoneConfig.getCenterLat() != null) {
-                return new MarketCoords(
-                    zoneConfig.getCenterLat().doubleValue(),
-                    zoneConfig.getCenterLng().doubleValue());
+            var market = marketRepository.findById(order.getMarketId()).orElse(null);
+            if (market != null && market.getLatitude() != null && market.getLongitude() != null) {
+                return new MarketCoords(market.getLatitude().doubleValue(), market.getLongitude().doubleValue());
             }
         }
         // Fallback: zone center

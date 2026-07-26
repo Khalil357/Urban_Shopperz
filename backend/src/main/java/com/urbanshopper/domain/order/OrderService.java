@@ -84,12 +84,19 @@ public class OrderService {
             }
         }
 
-        eventPublisher.publish(new OrderCreatedEvent(
-            saved.getId(), saved.getCustomerId(),
-            saved.getItemCount(), saved.getEstimatedTotal()));
+        // Only publish event and log for successfully created orders —
+        // cancelled orders (payment failure) should not trigger notifications
+        if (saved.getStatus() != OrderStatus.CANCELLED) {
+            eventPublisher.publish(new OrderCreatedEvent(
+                saved.getId(), saved.getCustomerId(),
+                saved.getItemCount(), saved.getEstimatedTotal()));
 
-        log.info("Order created: {} (status: {}, total: {} TZS)",
-            saved.getOrderNumber(), saved.getStatus(), pricing.total());
+            log.info("Order created: {} (status: {}, total: {} TZS)",
+                saved.getOrderNumber(), saved.getStatus(), pricing.total());
+        } else {
+            log.warn("Order created but cancelled (payment failed): {}",
+                saved.getOrderNumber());
+        }
 
         return OrderDTO.fromEntity(saved);
     }

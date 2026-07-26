@@ -74,11 +74,14 @@ public class AdminController {
     @PatchMapping("/zones/{id}")
     public ResponseEntity<ApiResponse<ZoneConfig>> updateZone(
             @PathVariable UUID id, @RequestBody ZoneUpdateRequest req) {
-        var zone = zoneConfigRepository.findById(id)
-            .orElseThrow(() -> new RuntimeException("Zone not found"));
-        // ZoneConfig is @Immutable so we need to use a native query or direct SQL
-        // For MVP, just return the existing zone
-        return ResponseEntity.ok(ApiResponse.success(zone));
+        var updated = zoneConfigRepository.updateZoneFields(id, req.name(), req.status());
+        if (updated == 0) {
+            throw new RuntimeException("Zone not found: " + id);
+        }
+        // Clear persistence context and re-fetch the updated zone
+        var refreshed = zoneConfigRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Zone not found after update: " + id));
+        return ResponseEntity.ok(ApiResponse.success(refreshed));
     }
 
     // ── Role check helper ──

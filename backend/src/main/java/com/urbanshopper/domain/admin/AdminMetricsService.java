@@ -43,8 +43,9 @@ public class AdminMetricsService {
         var completedOrders = orderRepository.countByStatus(OrderStatus.COMPLETED);
         var cancelledOrders = orderRepository.countByStatus(OrderStatus.CANCELLED);
 
-        var fulfillmentRate = totalOrders > 0
-            ? (double) completedOrders / (completedOrders + cancelledOrders) * 100
+        var terminalOrders = completedOrders + cancelledOrders;
+        var fulfillmentRate = totalOrders > 0 && terminalOrders > 0
+            ? (double) completedOrders / terminalOrders * 100
             : 0.0;
 
         // Shopper metrics
